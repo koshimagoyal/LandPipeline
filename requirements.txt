@@ -1,0 +1,8 @@
+pydantic>=2.7.0
+llama-index-core==0.11.20
+llama-index-llms-ollama==0.3.0
+llama-index-embeddings-ollama==0.3.0
+llama-index-agent-openai==0.3.0
+snowflake-connector-python
+python-dotenv
+streamlit

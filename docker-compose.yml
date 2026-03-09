@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  # --- DATABASE FOR AIRFLOW ---
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- APACHE AIRFLOW (Orchestrator) ---
+  airflow:
+    build: ./airflow
+    container_name: airflow  # <--- ADD THIS
+    hostname: airflow 
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - PYSPARK_PYTHON=python3
+      - PYSPARK_DRIVER_PYTHON=python3
+      - PYTHONPATH=/opt/airflow
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./flink_data:/opt/airflow/data
+    ports:
+      - "8085:8080"
+    command: standalone
+
+  # --- APACHE FLINK (Streaming) ---
+  flink-jobmanager:
+    build: ./flink
+    ports:
+      - "8081:8081"
+    command: jobmanager
+    volumes:
+      - ./flink_data:/opt/flink/data
+
+  flink-taskmanager:
+    build: ./flink
+    depends_on:
+      - flink-jobmanager
+    command: taskmanager
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
+
+  # --- APACHE SPARK (Batch) ---
+  spark-master:
+    build: ./spark
+    container_name: spark-master
+    hostname: spark-master
+    ports:
+    - "8082:8080" # Spark Master Web UI
+    - "7077:7077" # Spark Master RPC
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+
+  spark-worker:
+    build: ./spark
+    container_name: spark-worker
+    depends_on:
+    - spark-master
+    environment:
+    - SPARK_MASTER=spark://spark-master:7077
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+
+  # --- STREAMLIT AGENT ---
+  land-agent:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    ports:
+      - "8501:8501"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data:/app/data
